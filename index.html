@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Анализ отзывов банков</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f8f9fa;
+            padding-top: 2rem;
+        }
+        .card {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 1.5rem;
+        }
+        .chart-container {
+            margin: 1rem 0;
+            text-align: center;
+        }
+        .chart-container img {
+            max-width: 100%;
+            height: auto;
+        }
+        .review {
+            border-left: 4px solid #007bff;
+            padding-left: 1rem;
+            margin-bottom: 1rem;
+        }
+        .review-meta {
+            color: #6c757d;
+            font-size: 0.9rem;
+        }
+        .stars {
+            color: #ffc107;
+        }
+        #loadingSpinner {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 2rem;
+            border-radius: 10px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="text-center mb-4">Анализ отзывов банков</h1>
+
+        <div class="row">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Выбор параметров</h5>
+                        <form id="analysisForm">
+                            <div class="mb-3">
+                                <label for="citySelect" class="form-label">Город</label>
+                                <select class="form-select" id="citySelect" required>
+                                    <option value="">Выберите город</option>
+                                    {% for town in towns %}
+                                    <option value="{{ town }}">{{ town }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="branchSelect" class="form-label">Отделение</label>
+                                <select class="form-select" id="branchSelect" required disabled>
+                                    <option value="">Сначала выберите город</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="periodSelect" class="form-label">Период</label>
+                                <select class="form-select" id="periodSelect" required>
+                                    <option value="last_24h">За последние 24 часа</option>
+                                    <option value="latest_10">10 новейших</option>
+                                    <option value="current_month">За текущий месяц</option>
+                                    <option value="last_30_days">За последние 30 дней</option>
+                                    <option value="last_3_months">За последние 3 месяца</option>
+                                    <option value="this_year">За этот год</option>
+                                    <option value="custom">Ввести вручную</option>
+                                </select>
+                            </div>
+
+                            <div class="mb-3" id="customDatesContainer" style="display: none;">
+                                <label for="customDates" class="form-label">Период (ДД.MM.ГГГГ-ДД.MM.ГГГГ)</label>
+                                <input type="text" class="form-control" id="customDates" pattern="\d{2}\.\d{2}\.\d{4}-\d{2}\.\d{2}\.\d{4}" placeholder="01.01.2024-31.01.2024">
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100">Анализировать</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-8">
+                <div id="results" style="display: none;">
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Статистика оценок</h5>
+                            <div id="statsContent"></div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Графики</h5>
+                            <div id="chartsContent" class="row">
+                                <div class="col-md-12 chart-container">
+                                    <img id="chart0" alt="Timeline Chart" class="img-fluid">
+                                </div>
+                                <div class="col-md-6 chart-container">
+                                    <img id="chart1" alt="Bar Chart" class="img-fluid">
+                                </div>
+                                <div class="col-md-6 chart-container">
+                                    <img id="chart2" alt="Pie Chart" class="img-fluid">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <h5 class="card-title">Анализ GigaChat</h5>
+                            <div id="analysisContent" class="white-space-pre-wrap"></div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">Отзывы</h5>
+                            <div id="reviewsContent"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loadingSpinner" class="text-center">
+        <div class="spinner-border text-primary mb-2" role="status">
+            <span class="visually-hidden">Загрузка...</span>
+        </div>
+        <div>Анализируем отзывы...</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const citySelect = document.getElementById('citySelect');
+            const branchSelect = document.getElementById('branchSelect');
+            const periodSelect = document.getElementById('periodSelect');
+            const customDatesContainer = document.getElementById('customDatesContainer');
+            const customDates = document.getElementById('customDates');
+            const analysisForm = document.getElementById('analysisForm');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const results = document.getElementById('results');
+
+            citySelect.addEventListener('change', async function() {
+                const city = this.value;
+                if (!city) {
+                    branchSelect.innerHTML = '<option value="">Сначала выберите город</option>';
+                    branchSelect.disabled = true;
+                    return;
+                }
+
+                branchSelect.disabled = true;
+                branchSelect.innerHTML = '<option value="">Загрузка...</option>';
+
+                try {
+                    const response = await fetch(`/get_branches/${encodeURIComponent(city)}`);
+                    const branches = await response.json();
+
+                    branchSelect.innerHTML = '<option value="">Выберите отделение</option>';
+                    branches.forEach(branch => {
+                        const option = document.createElement('option');
+                        option.value = JSON.stringify({
+                            id: branch.id,
+                            address: branch.address
+                        });
+                        option.textContent = branch.address;
+                        branchSelect.appendChild(option);
+                    });
+                } catch (error) {
+                    console.error('Error fetching branches:', error);
+                    branchSelect.innerHTML = '<option value="">Ошибка загрузки отделений</option>';
+                }
+
+                branchSelect.disabled = false;
+            });
+
+            periodSelect.addEventListener('change', function() {
+                customDatesContainer.style.display =
+                    this.value === 'custom' ? 'block' : 'none';
+            });
+
+            analysisForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+
+                const branchData = JSON.parse(branchSelect.value);
+                const periodType = periodSelect.value;
+                const customDatesValue = customDates.value;
+
+                if (periodType === 'custom' && !customDatesValue.match(/^\d{2}\.\d{2}\.\d{4}-\d{2}\.\d{2}\.\d{4}$/)) {
+                    alert('Пожалуйста, введите период в формате ДД.MM.ГГГГ-ДД.MM.ГГГГ');
+                    return;
+                }
+
+                loadingSpinner.style.display = 'block';
+                results.style.display = 'none';
+
+                try {
+                    const response = await fetch('/analyze', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            branch_id: branchData.id,
+                            branch_address: branchData.address,
+                            city: citySelect.value,
+                            period_type: periodType,
+                            custom_dates: periodType === 'custom' ? customDatesValue : null
+                        }),
+                    });
+
+                    const data = await response.json();
+
+                    if (data.error) {
+                        alert('Ошибка: ' + data.error);
+                        return;
+                    }
+
+                    // Update stats
+                    document.getElementById('statsContent').textContent = data.analysis.stats;
+
+                    // Update charts
+                    for (let i = 0; i < 3; i++) {
+                        const chart = document.getElementById(`chart${i}`);
+                        chart.src = `data:image/png;base64,${btoa(String.fromCharCode.apply(null, new Uint8Array(data.analysis.charts[i])))}`;
+                    }
+
+                    // Update analysis
+                    document.getElementById('analysisContent').innerHTML =
+                        data.analysis.analysis.replace(/\n/g, '<br>');
+
+                    // Update reviews
+                    const reviewsHtml = data.reviews.map(review => `
+                        <div class="review">
+                            <div class="review-meta">
+                                <strong>${review.name}</strong> •
+                                ${new Date(review.date * 1000).toLocaleDateString()} •
+                                <span class="stars">${'★'.repeat(review.stars)}${'☆'.repeat(5-review.stars)}</span>
+                            </div>
+                            <div class="mt-2">${review.text}</div>
+                        </div>
+                    `).join('');
+                    document.getElementById('reviewsContent').innerHTML = reviewsHtml;
+
+                    results.style.display = 'block';
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Произошла ошибка при анализе отзывов');
+                } finally {
+                    loadingSpinner.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
